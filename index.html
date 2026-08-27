@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Trại Gà Tốc Chiến - English Egg Farm</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;600;700;800;900&display=swap" />
+<style>
+  * { box-sizing: border-box; }
+  html, body, #root { margin: 0; padding: 0; overflow: hidden; background: #f3f4f6; height: 100%; width: 100%; }
+  @keyframes miniLevelUp {
+    0% { transform: translate(-50%, 0) scale(0.8); opacity: 0; }
+    20% { opacity: 1; transform: translate(-50%, -20px) scale(1.2); }
+    100% { transform: translate(-50%, -40px) scale(1); opacity: 0; }
+  }
+  .mini-lvl-text { position: absolute; color: #f59e0b; font-weight: 900; text-shadow: 0 2px 4px rgba(0,0,0,0.1); animation: miniLevelUp 1s ease-out forwards; z-index: 150; font-size: 1.1rem; }
+  .wrong-egg { opacity: 0.8; filter: grayscale(0.2); }
+  .super-wrong-egg { border: 3px solid #d8b4fe !important; background: #faf5ff !important; }
+  @keyframes splatAnim { 0% { transform: translate(-50%, -50%) scale(0); opacity: 0; } 20% { transform: translate(-50%, -50%) scale(1.3); opacity: 1; } 80% { opacity: 1; } 100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; } }
+  .splat-overlay { position: absolute; top: 50%; left: 50%; width: 280px; height: 280px; background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path d="M10,50 Q20,10 50,20 Q80,10 90,50 Q80,90 50,80 Q20,90 10,50" fill="%234b5563" opacity="0.6"/></svg>'); background-size: contain; background-repeat: no-repeat; z-index: 2000; animation: splatAnim 0.5s forwards; display: flex; align-items: center; justify-content: center; font-size: 7rem; }
+  @keyframes basketWobble { 0% { transform: translateX(-50%) scale(1, 1); } 25% { transform: translateX(-50%) translateY(8px) scale(1.1, 0.85); } 100% { transform: translateX(-50%) scale(1, 1); } }
+  .basket-catch { animation: basketWobble 0.3s ease-out; }
+  @keyframes skullPulse { 0% { transform: scale(1); filter: drop-shadow(0 0 5px #a855f7); } 100% { transform: scale(1.2); filter: drop-shadow(0 0 20px #ef4444); } }
+  .skull-indicator { animation: skullPulse 0.5s infinite alternate; font-size: 3rem; }
+  @keyframes comboPulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); filter: brightness(1.2); } 100% { transform: scale(1); } }
+  .combo-active { animation: comboPulse 0.5s ease-in-out; }
+  @keyframes popUp { 0% { transform: translate(-50%, 0); opacity: 1; } 100% { transform: translate(-50%, -60px); opacity: 0; } }
+  /* Buttons/inputs don't inherit font-family by default in browsers — force Lexend everywhere so Vietnamese diacritics render consistently */
+  button, input { font-family: 'Lexend', sans-serif; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- React + ReactDOM (production builds) -->
+<script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<!-- Babel standalone to compile JSX directly in the browser (pinned to a UMD-compatible version) -->
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.7/babel.min.js"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useCallback } = React;
+
+/**
+ * ENGLISH EGG FARM - Phiên bản TỐI GIẢN HIỆU ỨNG ✨ (single-file HTML build)
+ * 1. Giao diện: Loại bỏ hiệu ứng phát sáng (glow/box-shadow) của cả trứng vàng và trứng tím.
+ * 2. Màu sắc: Sử dụng tông màu Pastel nhẹ nhàng cho viền trứng.
+ * 3. Không Game Over: Chơi trọn vẹn 45 giây để thi đua điểm số.
+ * 4. Nâng cấp gà: 2 quả đúng lên 1 cấp (2-4-6-8).
+ */
+
+const FONT_FAMILY = "'Lexend', sans-serif";
+
+const TIERS = [
+  { minCatches: 0, id: "white", emoji: "🐔", label: "Gà Trắng", bonus: 1 },
+  { minCatches: 2, id: "golden", emoji: "🐓", label: "Gà Vàng ⭐", bonus: 1 },
+  { minCatches: 4, id: "pink", emoji: "🐤", label: "Gà Hồng 💕", bonus: 1 },
+  { minCatches: 6, id: "dark", emoji: "🦅", label: "Gà Đen 🌙", bonus: 1 },
+  { minCatches: 8, id: "rainbow", emoji: "🦜", label: "Gà Cầu Vồng 🌈", bonus: 2 },
+];
+
+const EMOJI_MAP = {
+  "dog": "🐶", "cat": "🐱", "bird": "🐦", "fish": "🐟", "cow": "🐮", "pig": "🐷",
+  "duck": "🦆", "frog": "🐸", "lion": "🦁", "tiger": "🐯", "rabbit": "🐰",
+  "horse": "🐴", "sheep": "🐑", "chicken": "🐣", "elephant": "🐘", "hen": "🐔",
+  "monkey": "🐒", "zebra": "🦓", "panda": "🐼", "giraffe": "🦒", "koala": "🐨", "kangaroo": "🦘",
+  "bat": "🦇", "whale": "🐋", "octopus": "🐙", "spider": "🕷️", "snake": "🐍", "ant": "🐜",
+  "red": "🔴", "blue": "🔵", "green": "🟢", "yellow": "🟡", "orange": "🟠",
+  "purple": "🟣", "pink": "🌸", "white": "⚪", "black": "⚫", "brown": "🟤", "gray": "🔘",
+  "apple": "🍎", "banana": "🍌", "orange_f": "🍊", "grape": "🍇", "mango": "🥭",
+  "bread": "🍞", "milk": "🥛", "egg": "🥚", "rice": "🍚", "cake": "🍰", "lemon": "🍋",
+  "pizza": "🍕", "burger": "🍔", "cookie": "🍪", "cheese": "🧀", "strawberry": "🍓", "watermelon": "🍉",
+  "corn": "🌽", "mushroom": "🍄", "carrot": "🥕", "donut": "🍩", "honey": "🍯",
+  "car": "🚗", "bus": "🚌", "bike": "🚲", "plane": "✈️", "boat": "🚢", "train": "🚂",
+  "truck": "🚚", "helicopter": "🚁", "rocket": "🚀", "taxi": "🚕",
+  "circle": "⭕", "square": "⬛", "triangle": "🔺", "star": "⭐", "heart": "❤️",
+  "moon": "🌙", "sun": "☀️", "rain": "🌧️", "snow": "❄️", "flower": "🌸",
+  "one": "1️⃣", "two": "2️⃣", "three": "3️⃣", "four": "4️⃣", "five": "5️⃣",
+  "six": "6️⃣", "seven": "7️⃣", "eight": "8️⃣", "nine": "9️⃣", "ten": "🔟",
+  "book": "📖", "pen": "🖋️", "pencil": "✏️", "ruler": "📏", "bag": "🎒", "board": "📋",
+  "head": "🙆", "eye": "👁️", "ear": "👂", "nose": "👃", "mouth": "👄", "hand": "✋"
+};
+
+const DICTIONARY = {
+  "dog": "chó", "cat": "mèo", "bird": "chim", "fish": "cá", "cow": "bò", "pig": "lợn",
+  "duck": "vịt", "frog": "ếch", "lion": "sư tử", "tiger": "hổ", "rabbit": "thỏ",
+  "horse": "ngựa", "sheep": "cừu", "chicken": "gà", "elephant": "voi", "hen": "gà mái",
+  "monkey": "khỉ", "zebra": "ngựa vằn", "panda": "gấu trúc", "giraffe": "hươu cổ", "koala": "gấu túi", "kangaroo": "chuột túi",
+  "bat": "dơi", "whale": " cá voi", "octopus": "bạch tuộc", "spider": "nhện", "snake": "rắn", "ant": "kiến",
+  "red": "đỏ", "blue": "xanh dương", "green": "xanh lá", "yellow": "vàng", "orange": "cam",
+  "purple": "tím", "pink": "hồng", "white": "trắng", "black": "đen", "brown": "nâu", "gray": "xám",
+  "apple": "táo", "banana": "chuối", "orange_f": "quả cam", "grape": "nho", "mango": "xoài",
+  "bread": "bánh mì", "milk": "sữa", "egg": "trứng", "rice": "cơm", "cake": "bánh", "lemon": "chanh",
+  "pizza": "pizza", "burger": "burger", "cookie": "bánh quy", "cheese": "phô mai", "strawberry": "dâu", "watermelon": "dưa hấu",
+  "car": "ô tô", "bus": "xe buýt", "bike": "xe đạp", "plane": "máy bay", "boat": "thuyền", "train": "tàu hỏa",
+  "truck": "xe tải", "helicopter": "trực thăng", "rocket": "tên lửa", "taxi": "taxi",
+  "circle": "hình tròn", "square": "hình vuông", "triangle": "hình tam giác", "star": "sao", "heart": "tim",
+  "moon": "mặt trăng", "sun": "mặt trời", "rain": "mưa", "snow": "tuyết", "flower": "hoa",
+  "one": "số 1", "two": "số 2", "three": "số 3", "four": "số 4", "five": "số 5",
+  "six": "số 6", "seven": "số 7", "eight": "số 8", "nine": "số 9", "ten": "số 10",
+  "book": "sách", "pen": "bút mực", "pencil": "bút chì", "bag": "cặp", "board": "bảng",
+  "head": "đầu", "eye": "mắt", "ear": "tai", "nose": "mũi", "mouth": "miệng", "hand": "tay",
+  "carr": "sai", "buss": "sai", "bik": "sai", "plan": "sai", "triangl": "sai", "squar": "sai", "on": "sai", "too": "sai"
+};
+
+const MISSIONS = [
+  { id: "animals", label: "Động vật", emoji: "🐾", voice: "Animals!", correct: ["dog", "cat", "bird", "fish", "cow", "pig", "duck", "frog", "lion", "tiger", "rabbit", "horse", "sheep", "chicken", "elephant", "hen", "monkey", "zebra", "panda", "giraffe", "koala", "kangaroo", "bat", "whale", "octopus", "spider", "snake", "ant"], wrong: ["red", "car", "one", "book", "sun", "rain", "moon", "star", "circle", "apple"] },
+  { id: "transport", label: "Phương tiện", emoji: "🚀", voice: "Transportation!", correct: ["car", "bus", "bike", "plane", "boat", "train", "truck", "helicopter", "rocket", "taxi"], wrong: ["dog", "apple", "red", "head", "one", "star", "pen", "milk", "three", "ant"] },
+  { id: "nature", label: "Tự nhiên", emoji: "🌸", voice: "Nature!", correct: ["sun", "moon", "rain", "snow", "flower", "star", "heart"], wrong: ["car", "dog", "pen", "ten", "bus", "milk", "pizza"] },
+  { id: "colors", label: "Màu sắc", emoji: "🎨", voice: "Colors!", correct: ["red", "blue", "green", "yellow", "orange", "purple", "pink", "white", "black", "brown", "gray"], wrong: ["car", "dog", "apple", "one", "head", "pen", "sun", "jump", "star"] },
+  { id: "food", label: "Đồ ăn", emoji: "🍎", voice: "Food!", correct: ["apple", "banana", "orange_f", "grape", "mango", "bread", "milk", "egg", "rice", "cake", "lemon", "pizza", "burger", "cookie", "cheese", "strawberry", "watermelon"], wrong: ["car", "bus", "one", "star", "red", "blue", "pen", "dog"] },
+];
+
+const getTier = (catches) => {
+  let currentTier = TIERS[0];
+  for (const tier of TIERS) {
+    if (catches >= tier.minCatches) currentTier = tier;
+  }
+  return currentTier;
+};
+
+const MAX_LIVES = 3;
+const BASKET_WIDTH = 12;
+const BASKET_Y = 82;
+const GAME_DURATION = 45;
+const LB_STORAGE_KEY = "eggfarm_leaderboard_v3";
+
+let _globalId = 0;
+const generateId = () => ++_globalId;
+
+let audioCtx = null;
+const initAudio = () => { if (!audioCtx && typeof window !== 'undefined') audioCtx = new (window.AudioContext || window.webkitAudioContext)(); };
+
+const playBip = (type) => {
+  initAudio();
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+
+  const createOsc = (freq, osctype = 'sine', duration = 0.1, gainVal = 0.2) => {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = osctype;
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.frequency.setValueAtTime(freq, now);
+    gain.gain.setValueAtTime(gainVal, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + duration);
+    osc.start(now);
+    osc.stop(now + duration);
+  };
+
+  if (type === 'good') {
+    createOsc(880, 'sine', 0.1, 0.2);
+  } else if (type === 'levelUp') {
+    [0, 0.08, 0.16, 0.24].forEach((delay, i) => {
+      setTimeout(() => createOsc(600 + (i * 100), 'triangle', 0.1, 0.15), delay * 1000);
+    });
+  } else if (type === 'splat') {
+    try {
+        const bufferSize = audioCtx.sampleRate * 0.3;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) { data[i] = Math.random() * 2 - 1; }
+        const noiseSource = audioCtx.createBufferSource();
+        noiseSource.buffer = buffer;
+        const filter = audioCtx.createBiquadFilter();
+        const noiseGain = audioCtx.createGain();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(800, now);
+        filter.frequency.exponentialRampToValueAtTime(100, now + 0.3);
+        noiseSource.connect(filter); filter.connect(noiseGain); noiseGain.connect(audioCtx.destination);
+        noiseGain.gain.setValueAtTime(0.3, now); noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+        noiseSource.start(now); noiseSource.stop(now + 0.3);
+        const osc = audioCtx.createOscillator();
+        osc.type = 'sawtooth'; osc.frequency.setValueAtTime(150, now); osc.frequency.exponentialRampToValueAtTime(40, now + 0.3);
+        const g2 = audioCtx.createGain();
+        osc.connect(g2); g2.connect(audioCtx.destination);
+        g2.gain.setValueAtTime(0.2, now); g2.gain.linearRampToValueAtTime(0, now + 0.3);
+        osc.start(now); osc.stop(now + 0.3);
+    } catch(e) {}
+  } else {
+    createOsc(150, 'sawtooth', 0.2, 0.1);
+  }
+};
+
+let cachedVoice = null;
+const pickBestVoice = () => {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return null;
+  const voices = window.speechSynthesis.getVoices();
+  if (!voices.length) return null;
+  // Ưu tiên giọng chất lượng cao (Google/Natural/Online) tiếng Anh Mỹ, càng vui tươi càng tốt
+  const priorityKeywords = ["Google US English", "Microsoft Aria", "Microsoft Jenny", "Samantha", "Natural", "Online"];
+  for (const keyword of priorityKeywords) {
+    const found = voices.find(v => v.name.includes(keyword) && v.lang.startsWith("en"));
+    if (found) return found;
+  }
+  // Fallback: bất kỳ giọng tiếng Anh Mỹ nào không phải giọng robot mặc định
+  const usVoice = voices.find(v => v.lang === "en-US");
+  if (usVoice) return usVoice;
+  return voices.find(v => v.lang.startsWith("en")) || null;
+};
+
+if (typeof window !== 'undefined' && window.speechSynthesis) {
+  cachedVoice = pickBestVoice();
+  window.speechSynthesis.onvoiceschanged = () => { cachedVoice = pickBestVoice(); };
+}
+
+const speakEnglish = (word, mood = 'normal') => {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return;
+  setTimeout(() => {
+    try {
+      window.speechSynthesis.cancel();
+      const speechWord = word.split('_')[0];
+      const utterance = new SpeechSynthesisUtterance(speechWord);
+      utterance.lang = "en-US";
+      if (cachedVoice) utterance.voice = cachedVoice;
+      if (mood === 'sad') {
+        utterance.pitch = 0.7; utterance.rate = 0.85;
+      } else if (mood === 'happy') {
+        utterance.pitch = 1.3; utterance.rate = 1.05;
+      } else {
+        utterance.pitch = 1.1; utterance.rate = 0.95;
+      }
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {}
+  }, 50);
+};
+
+const loadLeaderboard = () => {
+  if (typeof window === 'undefined') return [];
+  try { return JSON.parse(localStorage.getItem(LB_STORAGE_KEY) || "[]"); }
+  catch { return []; }
+};
+
+const addToLeaderboard = (name, score) => {
+  const current = loadLeaderboard();
+  current.push({ name, score, date: new Date().toLocaleDateString("vi-VN") });
+  current.sort((a, b) => b.score - a.score);
+  const top10 = current.slice(0, 10);
+  localStorage.setItem(LB_STORAGE_KEY, JSON.stringify(top10));
+  return top10;
+};
+
+// ─── MAIN APP ──────────────────────────────────────────────────────────
+function App() {
+  const [phase, setPhase] = useState("intro");
+  const [coins, setCoins] = useState(0);
+  const [report, setReport] = useState(null);
+  const [gameKey, setGameKey] = useState(0);
+  const [duration, setDuration] = useState(45);
+
+  const onGameEnd = useCallback((results) => {
+    setReport(results);
+    setPhase("report");
+  }, []);
+
+  const handleStart = () => {
+    setCoins(0);
+    setGameKey(k => k + 1);
+    setPhase("playing");
+  };
+
+  return (
+    <div style={{
+      fontFamily: FONT_FAMILY, minHeight: "100vh", width: "100%", overflow: "hidden", position: "relative",
+      boxSizing: "border-box", background: "#f3f4f6"
+    }}>
+      {phase === "intro" && <IntroScreen onStart={handleStart} onLeader={() => setPhase("leaderboard")} duration={duration} onDurationChange={setDuration} />}
+      {phase === "playing" && <GameScreen key={gameKey} coins={coins} duration={duration} onEarn={(val) => setCoins(c => Math.max(0, c + val))} onEnd={onGameEnd} onExit={() => setPhase("intro")} />}
+      {phase === "report" && <ReportScreen stats={report} onPlayAgain={handleStart} onLeader={() => setPhase("leaderboard")} onHome={() => setPhase("intro")} />}
+      {phase === "leaderboard" && <LeaderboardScreen onBack={() => setPhase(report ? "report" : "intro")} />}
+    </div>
+  );
+}
+
+function IntroScreen({ onStart, onLeader, duration, onDurationChange }) {
+  const DURATIONS = [30, 45, 60];
+  return (
+    <div style={{
+      height: "100vh", width: "100%", display: "flex", alignItems: "center", justifyContent: "center",
+      background: "linear-gradient(160deg,#FFF9E6 0%,#B5E8FF 45%,#6CC97A 100%)", padding: "5px"
+    }}>
+      <div style={{
+        background: "white", borderRadius: 24, padding: "20px", maxWidth: "340px", width: "95%", textAlign: "center",
+        boxShadow: "0 10px 30px rgba(0,0,0,0.1)", border: "2px solid #6CC97A"
+      }}>
+        <div style={{ fontSize: "2.5rem", lineHeight: 1 }}>🥚</div>
+        <h1 style={{ fontWeight: 900, fontSize: "1.3rem", color: "#166534", margin: "4px 0" }}>Trại Gà Tốc Chiến</h1>
+
+        <div style={{ display: "flex", justifyContent: "center", gap: 6, margin: "10px 0" }}>
+          {DURATIONS.map(d => (
+            <button key={d} onClick={() => onDurationChange(d)} style={{
+              background: duration === d ? "#3b82f6" : "#eff6ff",
+              color: duration === d ? "white" : "#1e40af",
+              padding: "6px 14px", borderRadius: 10, border: `1.5px solid ${duration === d ? "#3b82f6" : "#bfdbfe"}`,
+              fontWeight: 800, fontSize: "0.85rem", cursor: "pointer", transition: "all 0.15s"
+            }}>{d}s</button>
+          ))}
+        </div>
+
+        <div style={{ background: "#f0fdf4", borderRadius: 14, padding: "10px", margin: "10px 0" }}>
+          <p style={{ fontSize: "0.7rem", fontWeight: 700, color: "#166534", margin: "0 0 8px 0" }}>⚡ Hứng 2 quả đúng = Lên 1 cấp gà!</p>
+          <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+            {TIERS.map((t, i) => (
+              <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                <span style={{ fontSize: "1.2rem" }}>{t.emoji}</span>
+                <span style={{ fontSize: "0.45rem", fontWeight: 800, color: "#166534" }}>{t.minCatches}🥚</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <button onClick={onStart} style={{
+          width: "100%", padding: "12px", borderRadius: 16, background: "#16a34a", color: "white",
+          fontWeight: 900, fontSize: "1.1rem", border: "none", cursor: "pointer", marginBottom: 6, boxShadow: "0 4px 0 #14532d"
+        }}>BẮT ĐẦU CHƠI 🚜</button>
+
+        <button onClick={onLeader} style={{
+          width: "100%", padding: "6px", borderRadius: 12, background: "transparent", color: "#6b7280",
+          fontWeight: 700, border: "1px solid #e5e7eb", cursor: "pointer", fontSize: "0.8rem"
+        }}>Bảng xếp hạng 🏆</button>
+      </div>
+    </div>
+  );
+}
+
+function GameScreen({ coins, onEarn, onEnd, onExit, duration }) {
+  const containerRef = useRef(null);
+  const basketRef = useRef(null);
+  const rafRef = useRef(null);
+  const eggRefs = useRef({});
+  const gameDuration = duration || GAME_DURATION;
+
+  const g = useRef({
+    eggs: [], basketX: 50, mission: null, timer: gameDuration, chickenCatches: [0, 0, 0],
+    running: true, score: { correct: 0, wrong: 0 },
+    lastSpawn: 0, lastMission: 0, lastTimer: 0, prevTs: null,
+    combo: 0, isReversed: false, reverseTimer: 0, lastSuperSpawn: 0,
+    speedMultiplier: 1, speedTimer: 0, lastSpecialSpawn: 0,
+    recentWords: []
+  });
+
+  const [eggViews, setEggViews] = useState([]);
+  const [mission, setMission] = useState(null);
+  const [timer, setTimer] = useState(gameDuration);
+  const [combo, setCombo] = useState(0);
+  const [chickenTiers, setChickenTiers] = useState([TIERS[0], TIERS[0], TIERS[0]]);
+  const [levelUpFx, setLevelUpFx] = useState([]);
+  const [basketFx, setBasketFx] = useState("");
+  const [popups, setPopups] = useState([]);
+  const [splatActive, setSplatActive] = useState(false);
+  const [statusMsg, setStatusMsg] = useState("");
+  const [isReversedUI, setIsReversedUI] = useState(false);
+  const [speedModeUI, setSpeedModeUI] = useState(null);
+
+  const triggerLevelUp = (chickenIdx) => {
+    const fxId = generateId();
+    setLevelUpFx(prev => [...prev, { id: fxId, idx: chickenIdx }]);
+    playBip('levelUp');
+    setTimeout(() => {
+      setLevelUpFx(prev => prev.filter(f => f.id !== fxId));
+    }, 1000);
+  };
+
+  const handleExit = useCallback(() => {
+    g.current.running = false;
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    onExit();
+  }, [onExit]);
+
+  const handlePointer = useCallback((e) => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    let xPercent = ((clientX - rect.left) / rect.width) * 100;
+    if (g.current.isReversed) xPercent = 100 - xPercent;
+    g.current.basketX = Math.max(6, Math.min(94, xPercent));
+    if (basketRef.current) basketRef.current.style.left = `${g.current.basketX}%`;
+  }, []);
+
+  const catchEgg = useCallback((egg) => {
+    egg.active = false;
+    setEggViews(v => v.filter(x => x.id !== egg.id));
+    delete eggRefs.current[egg.id];
+    setBasketFx("basket-catch");
+    setTimeout(() => setBasketFx(""), 300);
+
+    const popId = generateId();
+    const currentChickenTier = getTier(g.current.chickenCatches[egg.chickenIdx]);
+
+    if (egg.specialType) {
+      playBip('good');
+      const isSlow = egg.specialType === 'slow';
+      g.current.speedMultiplier = isSlow ? 0.5 : 1.8;
+      g.current.speedTimer = 6000;
+      setSpeedModeUI(egg.specialType);
+      setStatusMsg(isSlow ? "Chậm lại rồi! 🐢" : "Tăng tốc nào! 🐇");
+      setTimeout(() => setStatusMsg(""), 2000);
+      setPopups(p => [...p, { id: popId, x: egg.x, text: isSlow ? "CHẬM LẠI ⏱" : "TĂNG TỐC ⚡", type: "good" }]);
+      setTimeout(() => setPopups(p => p.filter(x => x.id !== popId)), 1000);
+      return;
+    }
+
+    if (egg.isCorrect) {
+      playBip('good');
+      speakEnglish(egg.word, 'happy');
+      g.current.combo++;
+      const curCombo = g.current.combo;
+      setCombo(curCombo);
+      const comboMult = curCombo < 5 ? 1 : curCombo < 10 ? 1.5 : curCombo < 20 ? 2 : 3;
+      const chickenMult = currentChickenTier.bonus || 1;
+      const totalPoints = Math.round(10 * comboMult * chickenMult);
+      g.current.score.correct++;
+      onEarn(totalPoints);
+
+      const oldTierId = currentChickenTier.id;
+      g.current.chickenCatches[egg.chickenIdx]++;
+      const newTier = getTier(g.current.chickenCatches[egg.chickenIdx]);
+
+      if (newTier.id !== oldTierId) triggerLevelUp(egg.chickenIdx);
+
+      setChickenTiers(prev => {
+        const next = [...prev];
+        next[egg.chickenIdx] = newTier;
+        return next;
+      });
+
+      const multText = comboMult > 1 ? ` x${comboMult}` : "";
+      setPopups(p => [...p, { id: popId, x: egg.x, text: `+${totalPoints}${multText}`, type: "good" }]);
+    } else {
+      playBip('splat');
+      speakEnglish(egg.word, 'sad');
+      setSplatActive(true);
+      setTimeout(() => setSplatActive(false), 500);
+      if (egg.isSuper) {
+        g.current.isReversed = true;
+        g.current.reverseTimer = 5000;
+        setIsReversedUI(true);
+        setStatusMsg("Bị lú rồi! 😵");
+        setTimeout(() => setStatusMsg(""), 3000);
+      }
+      g.current.combo = 0;
+      setCombo(0);
+      g.current.score.wrong++;
+      onEarn(-15);
+
+      g.current.chickenCatches[egg.chickenIdx] = Math.max(0, g.current.chickenCatches[egg.chickenIdx] - 1);
+      setChickenTiers(prev => {
+        const next = [...prev];
+        next[egg.chickenIdx] = getTier(g.current.chickenCatches[egg.chickenIdx]);
+        return next;
+      });
+
+      setPopups(p => [...p, { id: popId, x: egg.x, text: `-15`, type: "bad" }]);
+    }
+    setTimeout(() => setPopups(p => p.filter(x => x.id !== popId)), 1000);
+  }, [onEarn, coins]);
+
+  const loop = useCallback((ts) => {
+    const gc = g.current;
+    if (!gc.running) return;
+    if (!gc.prevTs) gc.prevTs = ts;
+    const dt = Math.min(ts - gc.prevTs, 50);
+    gc.prevTs = ts;
+
+    if (ts - gc.lastTimer >= 1000) {
+      gc.lastTimer = ts;
+      gc.timer--;
+      setTimer(gc.timer);
+      if (gc.timer <= 0) {
+        gc.running = false;
+        onEnd({ ...gc.score, coins: coins });
+        return;
+      }
+    }
+
+    if (gc.reverseTimer > 0) {
+      gc.reverseTimer -= dt;
+      if (gc.reverseTimer <= 0) {
+        gc.isReversed = false;
+        setIsReversedUI(false);
+      }
+    }
+
+    if (gc.speedTimer > 0) {
+      gc.speedTimer -= dt;
+      if (gc.speedTimer <= 0) {
+        gc.speedMultiplier = 1;
+        setSpeedModeUI(null);
+      }
+    }
+
+    if (!gc.mission || ts - gc.lastMission > 15000) {
+      gc.lastMission = ts;
+      const m = MISSIONS[Math.floor(Math.random() * MISSIONS.length)];
+      gc.mission = m;
+      setMission(m);
+      speakEnglish(m.voice);
+      gc.recentWords = [];
+    }
+
+    const currentSpawnInterval = Math.max(400, 1100 - (gc.score.correct * 20));
+
+    if (ts - gc.lastSpawn > currentSpawnInterval) {
+      gc.lastSpawn = ts;
+      const chickenX = [20, 50, 80];
+      const posX = chickenX[Math.floor(Math.random() * 3)];
+      const idx = chickenX.indexOf(posX);
+      const id = generateId();
+      const baseVy = 0.024;
+      const diffBonus = gc.score.correct * 0.00015;
+
+      const timeSinceLastSpecial = ts - gc.lastSpecialSpawn;
+      const spawnSpecial = timeSinceLastSpecial > 12000 && Math.random() < 0.12;
+
+      if (spawnSpecial) {
+        gc.lastSpecialSpawn = ts;
+        const specialType = Math.random() < 0.5 ? 'slow' : 'fast';
+        const egg = { id, x: posX, y: 15, vy: baseVy + diffBonus, word: null, isCorrect: false, isSuper: false, specialType, chickenIdx: idx, active: true };
+        gc.eggs.push(egg);
+        setEggViews(v => [...v, { ...egg, y: 15 }]);
+      } else {
+        let isCorrect = Math.random() > 0.45;
+        let isSuper = false;
+        const timeSinceLastSuper = ts - gc.lastSuperSpawn;
+        if (timeSinceLastSuper > 9000) {
+           isCorrect = false; isSuper = true;
+        } else {
+           isSuper = !isCorrect && Math.random() < 0.15;
+        }
+        if (isSuper) gc.lastSuperSpawn = ts;
+
+        const pool = isCorrect ? gc.mission.correct : gc.mission.wrong;
+        let word;
+        let attempts = 0;
+        do {
+          word = pool[Math.floor(Math.random() * pool.length)];
+          attempts++;
+        } while (attempts < 10 && gc.recentWords.includes(word));
+
+        gc.recentWords.push(word);
+        if (gc.recentWords.length > 10) gc.recentWords.shift();
+
+        const egg = { id, x: posX, y: 15, vy: baseVy + diffBonus, word, isCorrect, isSuper, specialType: null, chickenIdx: idx, active: true };
+        gc.eggs.push(egg);
+        setEggViews(v => [...v, { ...egg, y: 15 }]);
+      }
+    }
+
+    gc.eggs = gc.eggs.filter(egg => {
+      if (!egg.active) return false;
+      egg.y += egg.vy * dt * gc.speedMultiplier;
+      const el = eggRefs.current[egg.id];
+      if (el) el.style.top = `${egg.y}%`;
+      if (egg.y >= BASKET_Y - 2 && egg.y <= BASKET_Y + 4 && Math.abs(egg.x - gc.basketX) < BASKET_WIDTH/2 + 3) {
+        catchEgg(egg);
+        return false;
+      } else if (egg.y > 100) {
+        if (egg.isCorrect) {
+          onEarn(-10);
+          gc.combo = 0; setCombo(0);
+          const mid = generateId();
+          setPopups(p => [...p, { id: mid, x: egg.x, text: `Lỡ! -10`, type: "bad" }]);
+          setTimeout(() => setPopups(p => p.filter(x => x.id !== mid)), 800);
+        }
+        setEggViews(v => v.filter(x => x.id !== egg.id));
+        delete eggRefs.current[egg.id];
+        return false;
+      }
+      return true;
+    });
+    rafRef.current = requestAnimationFrame(loop);
+  }, [catchEgg, onEarn, onEnd, coins]);
+
+  useEffect(() => {
+    rafRef.current = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [loop]);
+
+  return (
+    <div ref={containerRef} style={{
+      width: "100%", height: "100vh", position: "relative", overflow: "hidden", touchAction: "none",
+      background: isReversedUI ? "linear-gradient(180deg, #f3e8ff 0%, #d8b4fe 100%)" : "linear-gradient(180deg, #B5E8FF 0%, #A8E6B8 100%)",
+      transition: "background 0.5s ease"
+    }} onMouseMove={handlePointer} onTouchMove={handlePointer}>
+
+      {/* HUD Bar */}
+      <div style={{ position: "absolute", top: 8, left: 8, right: 8, zIndex: 100, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
+        <button onClick={handleExit} style={{ background: "rgba(255,255,255,0.9)", border: "none", borderRadius: "50%", width: 34, height: 34, minWidth: 34, fontWeight: 900, fontSize: "1rem", color: "#dc2626", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 6px rgba(0,0,0,0.1)" }}>✕</button>
+        <div style={{ display: "flex", flex: 1, gap: 4, minWidth: 0 }}>
+          <div style={{ background: "rgba(255,255,255,0.9)", padding: "6px 12px", borderRadius: "14px", flex: 1, minWidth: 0, textAlign: "center" }}>
+            <span style={{ fontWeight: 900, fontSize: "0.8rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{mission ? `${mission.emoji} ${mission.label}` : "..."}</span>
+          </div>
+          <div style={{ background: "#fbbf24", padding: "6px 12px", borderRadius: "14px", display: "flex", alignItems: "center", border: "2px solid #fff" }}>
+             <span style={{ fontWeight: 900, fontSize: "0.85rem", color: "#92400e" }}>🪙 ĐIỂM: {coins}</span>
+          </div>
+          <div className={combo > 0 ? "combo-active" : ""} style={{ background: combo > 0 ? "linear-gradient(135deg, #f59e0b, #ef4444)" : "rgba(255,255,255,0.8)", padding: "6px 12px", borderRadius: "14px", minWidth: 65, textAlign: "center", color: combo > 0 ? "white" : "#999" }}>
+             <span style={{ fontWeight: 900, fontSize: "0.85rem" }}>🔥 {combo}</span>
+          </div>
+        </div>
+        <div style={{ background: "rgba(255,255,255,0.9)", padding: "6px 10px", borderRadius: "14px", minWidth: 50, textAlign: "center" }}>
+          <span style={{ fontWeight: 900, fontSize: "0.9rem", color: timer < 10 ? "#dc2626" : "#1f2937" }}>⏱{timer}</span>
+        </div>
+      </div>
+
+      {isReversedUI && (
+        <div style={{ position: "absolute", top: "45%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 1000, textAlign: "center" }}>
+          <div className="skull-indicator">☠️</div>
+          <div style={{ background: "rgba(168, 85, 247, 0.9)", color: "white", padding: "4px 15px", borderRadius: "12px", fontWeight: 900, marginTop: 10, fontSize: "0.8rem" }}>ĐẢO NGƯỢC!</div>
+        </div>
+      )}
+
+      {statusMsg && <div style={{ position: "absolute", top: "25%", left: "50%", transform: "translateX(-50%)", background: "#a855f7", color: "white", padding: "8px 20px", borderRadius: "20px", fontWeight: 900, zIndex: 500 }}>{statusMsg}</div>}
+      {splatActive && <div className="splat-overlay">🤢</div>}
+
+      {speedModeUI && (
+        <div style={{ position: "absolute", top: "8%", left: "50%", transform: "translateX(-50%)", zIndex: 400, background: speedModeUI === 'slow' ? "#3b82f6" : "#f97316", color: "white", padding: "4px 14px", borderRadius: 20, fontWeight: 900, fontSize: "0.75rem", boxShadow: "0 3px 8px rgba(0,0,0,0.15)" }}>
+          {speedModeUI === 'slow' ? "🐢 CHẬM LẠI" : "🐇 TĂNG TỐC"}
+        </div>
+      )}
+
+      <div style={{ position: "absolute", top: "16%", width: "100%", display: "flex", justifyContent: "space-around" }}>
+        {chickenTiers.map((tier, i) => (
+          <div key={i} style={{ textAlign: "center", position: "relative" }}>
+            {levelUpFx.some(f => f.idx === i) && <div className="mini-lvl-text">UP! ✨</div>}
+            <div style={{ fontSize: "3rem", transition: "transform 0.2s", transform: levelUpFx.some(f => f.idx === i) ? "scale(1.3)" : "scale(1)" }}>{tier.emoji}</div>
+            <div style={{ background: "white", padding: "2px 6px", borderRadius: 10, fontSize: "0.5rem", fontWeight: 800, border: "1.5px solid #eee" }}>Gà {i+1}</div>
+          </div>
+        ))}
+      </div>
+
+      {eggViews.map(egg => (
+        <React.Fragment key={egg.id}>
+          <div style={{ position: "absolute", left: `${egg.x}%`, top: `${BASKET_Y + 5}%`, width: "40px", height: "10px", background: "rgba(0,0,0,0.2)", borderRadius: "50%", transform: `translate(-50%, -50%) scale(${Math.max(0.4, (BASKET_Y + 5 - egg.y) / 85)})`, opacity: Math.min(0.5, 1 - (BASKET_Y + 5 - egg.y) / 85), pointerEvents: "none" }} />
+          {egg.specialType ? (
+            <div ref={el => eggRefs.current[egg.id] = el} className="special-egg"
+              style={{
+                position: "absolute", left: `${egg.x}%`, top: `${egg.y}%`, transform: "translateX(-50%)",
+                background: egg.specialType === 'slow' ? "#dbeafe" : "#fed7aa",
+                border: `2.5px solid ${egg.specialType === 'slow' ? "#60a5fa" : "#fb923c"}`,
+                borderRadius: "50%", padding: "10px 14px", textAlign: "center", minWidth: 56, zIndex: 50, boxShadow: "0 4px 10px rgba(0,0,0,0.08)"
+              }}>
+              <div style={{ fontSize: "1.4rem" }}>{egg.specialType === 'slow' ? "🐢" : "🐇"}</div>
+              <div style={{ fontSize: "0.5rem", fontWeight: 900, color: egg.specialType === 'slow' ? "#1e40af" : "#c2410c" }}>{egg.specialType === 'slow' ? "CHẬM" : "NHANH"}</div>
+            </div>
+          ) : (
+            <div ref={el => eggRefs.current[egg.id] = el} className={`${egg.isCorrect ? "correct-egg" : "wrong-egg"} ${egg.isSuper ? "super-wrong-egg" : ""}`}
+              style={{
+                position: "absolute", left: `${egg.x}%`, top: `${egg.y}%`, transform: "translateX(-50%)", background: "white",
+                border: `2.5px solid ${egg.isCorrect ? "#fde68a" : (egg.isSuper ? "#e9d5ff" : "#9ca3af")}`,
+                borderRadius: "50% 50% 45% 45%", padding: "8px 12px", textAlign: "center", minWidth: 60, zIndex: 50, boxShadow: "0 4px 10px rgba(0,0,0,0.06)"
+              }}>
+              <div style={{ fontSize: "1rem" }}>{egg.isCorrect ? "🥚" : (egg.isSuper ? "👿" : "💣")}</div>
+              <div style={{ fontSize: "0.65rem", fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}>
+                {EMOJI_MAP[egg.word.split('_')[0]] && <span>{EMOJI_MAP[egg.word.split('_')[0]]}</span>}
+                <span>{egg.word.split('_')[0].charAt(0).toUpperCase() + egg.word.split('_')[0].slice(1)}</span>
+              </div>
+              <div style={{ fontSize: "0.5rem", fontWeight: 700, color: "#666" }}>{DICTIONARY[egg.word] || ""}</div>
+            </div>
+          )}
+        </React.Fragment>
+      ))}
+
+      <div ref={basketRef} className={basketFx} style={{ position: "absolute", top: `${BASKET_Y}%`, left: "50%", transform: "translateX(-50%)", fontSize: "4.5rem", zIndex: 60, pointerEvents: "none", filter: "drop-shadow(0 5px 12px rgba(0,0,0,0.2))", opacity: isReversedUI ? 0.6 : 1 }}>🧺</div>
+
+      {popups.map(p => (
+        <div key={p.id} style={{ position: "absolute", left: `${p.x}%`, top: `${BASKET_Y - 5}%`, zIndex: 200, animation: "popUp 1s forwards", color: p.type === "good" ? "#16a34a" : "#dc2626", fontWeight: 900, fontSize: "1rem", pointerEvents: "none", textShadow: "0 2px 5px rgba(255,255,255,0.8)", textAlign: "center" }}>{p.text}</div>
+      ))}
+    </div>
+  );
+}
+
+function ReportScreen({ stats, onPlayAgain, onLeader, onHome }) {
+  if (!stats) return null;
+  const finalScore = stats.coins || 0;
+  const [name, setName] = useState("");
+  const [saved, setSaved] = useState(false);
+  return (
+    <div style={{ height: "100vh", width: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(160deg,#FFF9E6 0%,#B5E8FF 45%,#6CC97A 100%)", padding: 15 }}>
+      <div style={{ background: "white", borderRadius: 28, padding: "24px", maxWidth: "320px", width: "95%", textAlign: "center", boxShadow: "0 15px 40px rgba(0,0,0,0.1)", border: "3px solid #6CC97A" }}>
+        <h2 style={{ fontWeight: 900, fontSize: "1.2rem" }}>KẾT QUẢ 🌾</h2>
+        <div style={{ background: "#fffbeb", padding: "18px", borderRadius: 20, margin: "10px 0" }}>
+          <div style={{ fontSize: "2rem", fontWeight: 900, color: "#92400e" }}>{finalScore}</div>
+          <div style={{ fontSize: "0.7rem", fontWeight: 700 }}>TỔNG ĐIỂM</div>
+        </div>
+        {!saved ? (
+          <div style={{ marginBottom: 12 }}>
+            <input placeholder="Tên học sinh..." value={name} onChange={e => setName(e.target.value)} style={{ width: "100%", padding: "10px", borderRadius: 12, border: "2px solid #eee", marginBottom: 6, fontFamily: FONT_FAMILY }} />
+            <button onClick={() => { if(name.trim()) { addToLeaderboard(name, finalScore); setSaved(true); } }} style={{ width: "100%", padding: "10px", borderRadius: 12, background: "#7c3aed", color: "white", fontWeight: 700, border: "none" }}>Lưu điểm</button>
+          </div>
+        ) : <p style={{ color: "#16a34a", fontWeight: 700 }}>Đã lưu kết quả! 🎉</p>}
+        <button onClick={onPlayAgain} style={{ width: "100%", padding: "12px", borderRadius: 18, background: "#16a34a", color: "white", fontWeight: 800, fontSize: "1rem", border: "none", marginBottom: 8 }}>Lượt chơi mới 🚜</button>
+        <button onClick={onHome} style={{ width: "100%", padding: "10px", borderRadius: 12, background: "#f3f4f6", border: "none", fontWeight: 700 }}>Về trang chủ</button>
+      </div>
+    </div>
+  );
+}
+
+function LeaderboardScreen({ onBack }) {
+  const entries = loadLeaderboard();
+  return (
+    <div style={{ height: "100vh", width: "100%", background: "#f9fafb", padding: "15px", overflowY: "auto", display: "flex", flexDirection: "column", alignItems: "center" }}>
+      <div style={{ width: "100%", maxWidth: "340px" }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", fontWeight: 800, cursor: "pointer", marginBottom: 15 }}>← Quay lại</button>
+        <h2 style={{ fontWeight: 900, textAlign: "center", marginBottom: 15 }}>Bảng Xếp Hạng 🏆</h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {entries.length === 0 ? ( <p style={{ textAlign: "center", color: "#666" }}>Chưa có kỷ lục nào.</p> ) : entries.map((e, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", background: "white", padding: "10px 14px", borderRadius: 15, boxShadow: "0 2px 5px rgba(0,0,0,0.04)" }}>
+              <span style={{ fontWeight: 800 }}>{i+1}. {e.name}</span>
+              <span style={{ fontWeight: 900, color: "#16a34a" }}>{e.score} pt</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+</body>
+</html>
